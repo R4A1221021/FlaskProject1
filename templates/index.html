@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>オフライン災害情報共有システム (RPi)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+    <style>
+        /* ラズパイのタッチスクリーン用に全体のフォントとタップ領域を調整 */
+        body {
+            font-size: 1.1rem; /* 少し大きめのフォント */
+            -webkit-user-select: none; /* テキスト選択を無効化 */
+            user-select: none;
+            cursor: default; /* デフォルトカーソル */
+        }
+        /* スクロールバーを非表示にしつつスクロールは可能に (キオスク端末向け) */
+        .content-area::-webkit-scrollbar {
+            display: none;
+        }
+        .content-area {
+            -ms-overflow-style: none; /* IE/Edge */
+            scrollbar-width: none; /* Firefox */
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white h-screen overflow-hidden flex">
+
+    <nav class="w-24 bg-gray-800 h-full flex flex-col items-center py-4 space-y-4 shadow-lg">
+        <div class="mb-4">
+            <i class="fas fa-satellite-dish text-3xl text-blue-400"></i>
+        </div>
+
+        <button class="nav-btn w-20 h-20 bg-blue-600 rounded-lg flex flex-col items-center justify-center shadow-md focus:outline-none" data-target="chat">
+            <i class="fas fa-comments text-3xl"></i>
+            <span class="text-xs mt-1">チャット</span>
+        </button>
+
+        <button class="nav-btn w-20 h-20 bg-gray-700 hover:bg-gray-600 rounded-lg flex flex-col items-center justify-center shadow-md focus:outline-none" data-target="safety">
+            <i class="fas fa-shield-heart text-3xl"></i>
+            <span class="text-xs mt-1">安否確認</span>
+        </button>
+
+        <button class="nav-btn w-20 h-20 bg-gray-700 hover:bg-gray-600 rounded-lg flex flex-col items-center justify-center shadow-md focus:outline-none" data-target="support">
+            <i class="fas fa-hands-helping text-3xl"></i>
+            <span class="text-xs mt-1">支援要請</span>
+        </button>
+
+        <button class="nav-btn w-20 h-20 bg-gray-700 hover:bg-gray-600 rounded-lg flex flex-col items-center justify-center shadow-md focus:outline-none" data-target="community">
+            <i class="fas fa-clipboard-list text-3xl"></i>
+            <span class="text-xs mt-1">掲示板</span>
+        </button>
+
+        <div class="flex-grow"></div> <button class="nav-btn w-20 h-20 bg-gray-700 hover:bg-red-600 rounded-lg flex flex-col items-center justify-center shadow-md focus:outline-none" data-target="admin">
+            <i class="fas fa-user-shield text-3xl"></i>
+            <span class="text-xs mt-1">管理者</span>
+        </button>
+    </nav>
+
+    <main class="flex-1 bg-gray-900 h-screen overflow-hidden">
+
+        <div id="chat" class="page-content h-full flex flex-col">
+            <header class="bg-gray-800 p-4 shadow-md">
+                <h1 class="text-2xl font-bold"><i class="fas fa-comments mr-2"></i>ローカルチャット (全員)</h1>
+            </header>
+
+            <div class="content-area flex-1 p-4 space-y-4 overflow-y-auto">
+                <div class="flex justify-end">
+                    <div class="bg-blue-600 p-3 rounded-lg max-w-xs shadow">
+                        <p>テストメッセージです。大丈夫ですか？</p>
+                        <span class="text-xs text-blue-200 block text-right mt-1">あなた (10:30)</span>
+                    </div>
+                </div>
+                <div class="flex justify-start">
+                    <div class="bg-gray-700 p-3 rounded-lg max-w-xs shadow">
+                        <p class="font-bold text-yellow-300">避難所スタッフ</p>
+                        <p>11時から炊き出しを開始します。体育館前に集まってください。</p>
+                        <span class="text-xs text-gray-400 block text-right mt-1">10:31</span>
+                    </div>
+                </div>
+                 <div class="flex justify-start">
+                    <div class="bg-gray-700 p-3 rounded-lg max-w-xs shadow">
+                        <p class="font-bold">田中 (302号室)</p>
+                        <p>はい、大丈夫です。そちらはどうですか？</p>
+                        <span class="text-xs text-gray-400 block text-right mt-1">10:32</span>
+                    </div>
+                </div>
+            </div>
+
+            <footer class="bg-gray-800 p-4 shadow-inner">
+                <div class="flex space-x-3">
+                    <input type="text" placeholder="メッセージを入力 (例: 鈴木 / 助けが必要です)" class="flex-1 p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button class="w-24 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-bold text-lg p-3 shadow">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </footer>
+        </div>
+
+        <div id="safety" class="page-content h-full flex flex-col hidden">
+            <header class="bg-gray-800 p-4 shadow-md">
+                <h1 class="text-2xl font-bold"><i class="fas fa-shield-heart mr-2"></i>安否確認・登録</h1>
+            </header>
+            <div class="content-area flex-1 p-6 grid grid-cols-1 md:grid-cols-2 gap-6 items-center justify-center">
+
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-bold mb-4">自分の安否を登録</h2>
+                    <input type="text" placeholder="名前を入力 (例: 広島 太郎)" class="w-full p-4 mb-4 bg-gray-700 border border-gray-600 rounded-lg text-white text-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <button class="bg-green-600 hover:bg-green-700 text-white font-bold py-6 px-4 rounded-lg shadow-lg text-2xl transition duration-200 transform hover:scale-105">
+                            <i class="fas fa-check-circle mr-2"></i> 無事
+                        </button>
+                        <button class="bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-6 px-4 rounded-lg shadow-lg text-2xl transition duration-200 transform hover:scale-105">
+                            <i class="fas fa-medkit mr-2"></i> 軽傷
+                        </button>
+                        <button class="bg-red-600 hover:bg-red-700 text-white font-bold py-6 px-4 rounded-lg shadow-lg text-2xl col-span-2 transition duration-200 transform hover:scale-105">
+                            <i class="fas fa-exclamation-triangle mr-2"></i> 救助が必要
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-bold mb-4">現在の安否状況 (一部)</h2>
+                    <ul class="space-y-3 h-64 overflow-y-auto content-area">
+                        <li class="flex items-center justify-between bg-gray-700 p-3 rounded-lg">
+                            <span class="text-lg">広島 太郎</span>
+                            <span class="px-3 py-1 rounded-full text-sm font-bold bg-green-600 text-white">無事</span>
+                        </li>
+                         <li class="flex items-center justify-between bg-gray-700 p-3 rounded-lg">
+                            <span class="text-lg">安芸 もみじ</span>
+                            <span class="px-3 py-1 rounded-full text-sm font-bold bg-yellow-500 text-black">軽傷</span>
+                        </li>
+                        <li class="flex items-center justify-between bg-gray-700 p-3 rounded-lg">
+                            <span class="text-lg">瀬戸内 一郎</span>
+                            <span class="px-3 py-1 rounded-full text-sm font-bold bg-green-600 text-white">無事</span>
+                        </li>
+                        <li class="flex items-center justify-between bg-gray-700 p-3 rounded-lg">
+                            <span class="text-lg">宮島 花子</span>
+                            <span class="px-3 py-1 rounded-full text-sm font-bold bg-red-600 text-white">要救助</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div id="support" class="page-content h-full flex flex-col hidden">
+            <header class="bg-gray-800 p-4 shadow-md">
+                <h1 class="text-2xl font-bold"><i class="fas fa-hands-helping mr-2"></i>支援要請（物資）</h1>
+            </header>
+            <div class="content-area flex-1 p-6">
+                <h2 class="text-xl mb-4">必要な物資のボタンを押してください（複数可）</h2>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-5">
+
+                    <button class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-10 px-4 rounded-lg shadow-lg text-2xl flex flex-col items-center justify-center transition duration-200 transform hover:scale-105">
+                        <i class="fas fa-tint text-4xl mb-2"></i> 水
+                    </button>
+                    <button class="bg-green-600 hover:bg-green-700 text-white font-bold py-10 px-4 rounded-lg shadow-lg text-2xl flex flex-col items-center justify-center transition duration-200 transform hover:scale-105">
+                        <i class="fas fa-utensils text-4xl mb-2"></i> 食料
+                    </button>
+                    <button class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-10 px-4 rounded-lg shadow-lg text-2xl flex flex-col items-center justify-center transition duration-200 transform hover:scale-105">
+                        <i class="fas fa-blanket text-4xl mb-2"></i> 毛布
+                    </button>
+                    <button class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-10 px-4 rounded-lg shadow-lg text-2xl flex flex-col items-center justify-center transition duration-200 transform hover:scale-105">
+                        <i class="fas fa-baby-carriage text-4xl mb-2"></i> 粉ミルク・おむつ
+                    </button>
+                    <button class="bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-10 px-4 rounded-lg shadow-lg text-2xl flex flex-col items-center justify-center transition duration-200 transform hover:scale-105">
+                        <i class="fas fa-pills text-4xl mb-2"></i> 常備薬
+                    </button>
+                    <button class="bg-red-600 hover:bg-red-700 text-white font-bold py-10 px-4 rounded-lg shadow-lg text-2xl flex flex-col items-center justify-center transition duration-200 transform hover:scale-105">
+                        <i class="fas fa-first-aid text-4xl mb-2"></i> 救急箱
+                    </button>
+                </div>
+                <textarea placeholder="その他、特記事項があれば入力 (例: 家族4人分、アレルギーあり)" class="w-full p-3 mt-6 bg-gray-700 border border-gray-600 rounded-lg text-white text-lg h-24 focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                <button class="w-full mt-4 bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-lg shadow-lg text-2xl">
+                    要請を送信
+                </button>
+            </div>
+        </div>
+
+        <div id="community" class="page-content h-full flex flex-col hidden">
+            <header class="bg-gray-800 p-4 shadow-md">
+                <h1 class="text-2xl font-bold"><i class="fas fa-clipboard-list mr-2"></i>みんなの掲示板</h1>
+            </header>
+
+            <div class="content-area flex-1 p-4 space-y-4 overflow-y-auto">
+                <div class="bg-gray-800 p-4 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold mb-2">新規投稿</h3>
+                    <input type="text" placeholder="名前 (任意)" class="w-full p-3 mb-2 bg-gray-700 border border-gray-600 rounded-lg text-white">
+                    <textarea placeholder="メッセージ (例: ○○小学校の体育館裏で犬を保護しています)" class="w-full p-3 mb-2 bg-gray-700 border border-gray-600 rounded-lg text-white h-24"></textarea>
+                    <button class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow text-lg">投稿する</button>
+                </div>
+
+                <div class="bg-gray-800 p-4 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold mb-2">投稿一覧</h3>
+                    <div class="space-y-3">
+                        <div class="bg-gray-700 p-3 rounded">
+                            <p>○○小学校の体育館裏で犬（柴犬・オス・赤い首輪）を保護しています。心当たりの方は本部まで。</p>
+                            <span class="text-xs text-gray-400 block text-right mt-1">- 管理者 (11:05)</span>
+                        </div>
+                        <div class="bg-gray-700 p-3 rounded">
+                            <p>スマートフォンの充電器（USB-C）を貸していただける方いませんか？</p>
+                            <span class="text-xs text-gray-400 block text-right mt-1">- 鈴木 (10:45)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="admin" class="page-content h-full flex flex-col hidden">
+            <header class="bg-gray-800 p-4 shadow-md">
+                <h1 class="text-2xl font-bold"><i class="fas fa-user-shield mr-2"></i>管理者モード</h1>
+            </header>
+
+            <div class="content-area flex-1 p-6 grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto">
+
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-bold mb-4">避難者 受付 (QRスキャン)</h2>
+                    <p class="text-gray-300 mb-4">避難者のQRコードをスキャンして受付します。</p>
+
+                    <div id="qr-reader" class="w-full bg-gray-700 rounded-lg overflow-hidden" style="width: 100%; height: 300px;">
+                        </div>
+                    <div id="qr-reader-results" class="mt-4 text-center text-lg text-yellow-300"></div>
+                </div>
+
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-bold mb-4">炊き出し・物資 在庫確認</h2>
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between bg-gray-700 p-3 rounded-lg">
+                            <span class="text-lg">水 (2L)</span>
+                            <div class="flex items-center space-x-2">
+                                <button class="w-10 h-10 bg-red-600 rounded-full text-lg font-bold">-</button>
+                                <span class="text-xl font-bold w-12 text-center">50</span>
+                                <button class="w-10 h-10 bg-green-600 rounded-full text-lg font-bold">+</button>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between bg-gray-700 p-3 rounded-lg">
+                            <span class="text-lg">アルファ米</span>
+                            <div class="flex items-center space-x-2">
+                                <button class="w-10 h-10 bg-red-600 rounded-full text-lg font-bold">-</button>
+                                <span class="text-xl font-bold w-12 text-center">200</span>
+                                <button class="w-10 h-10 bg-green-600 rounded-full text-lg font-bold">+</button>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between bg-gray-700 p-3 rounded-lg">
+                            <span class="text-lg">毛布</span>
+                            <div class="flex items-center space-x-2">
+                                <button class="w-10 h-10 bg-red-600 rounded-full text-lg font-bold">-</button>
+                                <span class="text-xl font-bold w-12 text-center">150</span>
+                                <button class="w-10 h-10 bg-green-600 rounded-full text-lg font-bold">+</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg md:col-span-2">
+                    <h2 class="text-xl font-bold mb-4">避難者 安否一覧 (全件)</h2>
+                    <input type="text" placeholder="名前で検索..." class="w-full p-3 mb-4 bg-gray-700 border border-gray-600 rounded-lg text-white">
+                    <div class="h-64 overflow-y-auto content-area">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-700">
+                                <tr>
+                                    <th class="p-3">名前</th>
+                                    <th class="p-3">ステータス</th>
+                                    <th class="p-3">最終更新</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="border-b border-gray-700">
+                                    <td class="p-3">広島 太郎</td>
+                                    <td class="p-3"><span class="px-3 py-1 rounded-full text-sm font-bold bg-green-600 text-white">無事</span></td>
+                                    <td class="p-3">10:45</td>
+                                </tr>
+                                <tr class="border-b border-gray-700">
+                                    <td class="p-3">宮島 花子</td>
+                                    <td class="p-3"><span class="px-3 py-1 rounded-full text-sm font-bold bg-red-600 text-white">要救助</span></td>
+                                    <td class="p-3">09:30</td>
+                                </tr>
+                                <tr class="border-b border-gray-700">
+                                    <td class="p-3">安芸 もみじ</td>
+                                    <td class="p-3"><span class="px-3 py-1 rounded-full text-sm font-bold bg-yellow-500 text-black">軽傷</span></td>
+                                    <td class="p-3">10:50</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        $(document).ready(function() {
+            $('.nav-btn').on('click', function() {
+                var targetPage = $(this).data('target');
+
+                // 全てのページを非表示
+                $('.page-content').addClass('hidden');
+
+                // ターゲットのページを表示
+                $('#' + targetPage).removeClass('hidden');
+
+                // ボタンのアクティブ状態を更新
+                $('.nav-btn').removeClass('bg-blue-600').addClass('bg-gray-700 hover:bg-gray-600');
+                $(this).removeClass('bg-gray-700 hover:bg-gray-600').addClass('bg-blue-600');
+
+                // 管理者タブがクリックされたらQRスキャナを起動
+                if (targetPage === 'admin') {
+                    startQrScanner();
+                } else {
+                    stopQrScanner();
+                }
+            });
+        });
+    </script>
+
+    <script src="https://unpkg.com/html5-qrcode@2.0.9/dist/html5-qrcode.min.js"></script>
+    <script>
+        let html5QrCode = null;
+
+        function onScanSuccess(decodedText, decodedResult) {
+            // スキャン成功時の処理
+            console.log(`Code matched = ${decodedText}`, decodedResult);
+            $('#qr-reader-results').text(`スキャン成功: ${decodedText}`);
+
+            // ここでローカルサーバーに decodedText (例: ユーザーID) を送信する処理を記述
+
+            // スキャンを停止（連続スキャンを停止する場合）
+            // stopQrScanner();
+        }
+
+        function onScanFailure(error) {
+            // スキャン失敗時（カメラが見つからない、権限がないなど）
+            // console.warn(`Code scan error = ${error}`);
+            $('#qr-reader-results').text(`スキャンエラー: ${error}`);
+        }
+
+        function startQrScanner() {
+            if (html5QrCode) {
+                // 既にスキャナが初期化されている場合は再開
+                html5QrCode.resume();
+                return;
+            }
+
+            html5QrCode = new Html5Qrcode("qr-reader");
+            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+            // 利用可能なカメラを取得してスキャンを開始
+            Html5Qrcode.getCameras().then(cameras => {
+                if (cameras && cameras.length) {
+                    const cameraId = cameras[0].id; // 最初のカメラを使用
+                    html5QrCode.start(
+                        cameraId,
+                        config,
+                        onScanSuccess,
+                        onScanFailure
+                    ).catch(err => {
+                        console.error("QRスキャナの起動に失敗", err);
+                        $('#qr-reader-results').text("QRスキャナの起動に失敗。");
+                    });
+                } else {
+                    $('#qr-reader-results').text("利用可能なカメラが見つかりません。");
+                }
+            }).catch(err => {
+                console.error("カメラの取得に失敗", err);
+                $('#qr-reader-results').text("カメラの取得に失敗しました。");
+            });
+        }
+
+        function stopQrScanner() {
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.pause(true); // スキャンを一時停止
+            }
+        }
+    </script>
+
+</body>
+</html>
